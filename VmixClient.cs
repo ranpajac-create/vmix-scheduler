@@ -64,14 +64,24 @@ public class VmixClient
         response.EnsureSuccessStatusCode();
     }
 
-    /// <summary>
-    /// Restarts the input from the beginning, cuts it directly to Program,
-    /// then ensures playback is running. Works for both plain clips and playlist (List) inputs.
-    /// </summary>
     public async Task TriggerInputAsync(string host, int port, string inputKey)
     {
         await CallFunctionAsync(host, port, "Restart", inputKey);
         await CallFunctionAsync(host, port, "CutDirect", inputKey);
+        await CallFunctionAsync(host, port, "Play", inputKey);
+    }
+
+    /// <summary>Cuts to the input and ensures playback, WITHOUT restarting — for continuing a
+    /// list input (e.g. Filler) from wherever it currently sits.</summary>
+    public async Task ResumeInputAsync(string host, int port, string inputKey)
+    {
+        await CallFunctionAsync(host, port, "CutDirect", inputKey);
+        await CallFunctionAsync(host, port, "Play", inputKey);
+    }
+
+    public async Task LoopListToStartAsync(string host, int port, string inputKey)
+    {
+        await CallFunctionAsync(host, port, "SelectIndex", inputKey, "1"); // vMix list indices are 1-based
         await CallFunctionAsync(host, port, "Play", inputKey);
     }
 
@@ -87,9 +97,10 @@ public class VmixClient
         response.EnsureSuccessStatusCode();
     }
 
-    private async Task CallFunctionAsync(string host, int port, string function, string inputKey)
+    private async Task CallFunctionAsync(string host, int port, string function, string inputKey, string? value = null)
     {
         var url = $"{BaseUrl(host, port)}/api/?Function={function}&Input={WebUtility.UrlEncode(inputKey)}";
+        if (value != null) url += $"&Value={WebUtility.UrlEncode(value)}";
         using var response = await _http.GetAsync(url);
         response.EnsureSuccessStatusCode();
     }

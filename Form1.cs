@@ -23,6 +23,12 @@ public partial class Form1 : Form
     // operator switched to it manually in vMix.
     private bool _adOverlaysOff;
 
+    // What was on Program the tick before the current one — captured into _preAdInputKey the
+    // moment an ad break starts, so HandleAutoFillerAsync can cut back to that program instead
+    // of the filler once the ad(s) finish.
+    private string? _previousActiveKey;
+    private string? _preAdInputKey;
+
     private string? _overlay2ItemKey;
     private readonly HashSet<string> _overlay2FiredForItem = new();
     private bool _overlay2Visible;
@@ -31,6 +37,9 @@ public partial class Form1 : Form
     private const int AutoSyncIntervalSeconds = 15;
     private bool _isSyncing;
     private DateTime _lastAutoSync = DateTime.MinValue;
+    private bool _hasSyncedOnce;
+    private bool _isTickRunning;
+    private DateTime _lastNowNextUpdate = DateTime.MinValue;
 
     public Form1()
     {
@@ -42,6 +51,18 @@ public partial class Form1 : Form
     }
 
     private int GetPort() => int.TryParse(txtPort.Text.Trim(), out var p) ? p : 8088;
+
+    private int GetNowNextIntervalSeconds() => cmbNowNextInterval.SelectedItem?.ToString() switch
+    {
+        "1s" => 1,
+        "2s" => 2,
+        "5s" => 5,
+        "10s" => 10,
+        "30s" => 30,
+        "1 min" => 60,
+        "10 min" => 600,
+        _ => 5,
+    };
 
     private void Log(string message)
     {
@@ -83,8 +104,9 @@ public partial class Form1 : Form
             SyncRoles(inputs);
             SyncRules(inputs);
             RefreshGrid();
-            if (!_adOverlaysOff)
-                await RestoreAdOverlaysAsync(host, port, "Sync");
+            if (!_hasSyncedOnce && !_adOverlaysOff)
+                await RestoreAdOverlaysAsync(host, port, "Startup sync");
+            _hasSyncedOnce = true;
             lblConnectionStatus.Text = $"Connected — {inputs.Count} input(s), {_rules.Count} rule(s)";
             lblConnectionStatus.ForeColor = Color.SeaGreen;
             if (!silent)
@@ -209,6 +231,10 @@ public partial class Form1 : Form
         // afterward, including if the operator switches ads manually from here on.
         if (rule.Category is ScheduleCategory.Ad or ScheduleCategory.LShapeAd && !_adOverlaysOff)
         {
+            // Do this here too (not just in HandleAdOverlayStateAsync) — this path sets
+            // _adOverlaysOff itself, so by the time HandleAdOverlayStateAsync sees the ad later
+            // in the same tick, its own "!_adOverlaysOff" capture check would already be false.
+            _preAdInputKey = _previousActiveKey;
             await SuppressAdOverlaysAsync(host, port);
             _adOverlaysOff = true;
         }
@@ -245,63 +271,78 @@ public partial class Form1 : Form
 
     private async void tmrCheck_Tick(object? sender, EventArgs e)
     {
-        var host = txtHost.Text.Trim();
-        var port = GetPort();
-        var now = DateTime.Now;
-
-        if ((now - _lastAutoSync).TotalSeconds >= AutoSyncIntervalSeconds)
-            await SyncFromVmixAsync(silent: true);
-
-        var due = _rules.Where(r =>
+        if (_isTickRunning) return;
+        _isTickRunning = true;
+        try
         {
-            var occ = r.ComputeOccurrence(now);
-            return occ.HasValue && occ.Value <= now && (now - occ.Value) <= TimeSpan.FromSeconds(3) && r.LastFiredOccurrence != occ.Value;
-        }).ToList();
+            var host = txtHost.Text.Trim();
+            var port = GetPort();
+            var now = DateTime.Now;
 
-        foreach (var rule in due)
-        {
-            var occurrence = rule.ComputeOccurrence(now)!.Value;
+            if ((now - _lastAutoSync).TotalSeconds >= AutoSyncIntervalSeconds)
+                await SyncFromVmixAsync(silent: true);
+
+            var due = _rules.Where(r =>
+            {
+                var occ = r.ComputeOccurrence(now);
+                return occ.HasValue && occ.Value <= now && (now - occ.Value) <= TimeSpan.FromSeconds(3) && r.LastFiredOccurrence != occ.Value;
+            }).ToList();
+
+            foreach (var rule in due)
+            {
+                var occurrence = rule.ComputeOccurrence(now)!.Value;
+                try
+                {
+                    await FireRuleAsync(host, port, rule, occurrence);
+                    Log($"Triggered '{rule.DisplayName}' ({rule.Category}, {rule.RecurrenceDisplay}).");
+                }
+                catch (Exception ex)
+                {
+                    Log($"FAILED to trigger '{rule.DisplayName}' — {ex.Message}");
+                }
+            }
+            if (due.Count > 0) RefreshGrid();
+
+            if (_rules.Count == 0 && _roleInputs.Count == 0) return;
+
+            VmixStatus status;
             try
             {
-                await FireRuleAsync(host, port, rule, occurrence);
-                Log($"Triggered '{rule.DisplayName}' ({rule.Category}, {rule.RecurrenceDisplay}).");
+                status = await _client.GetStatusAsync(host, port);
             }
             catch (Exception ex)
             {
-                Log($"FAILED to trigger '{rule.DisplayName}' — {ex.Message}");
+                LogThrottled($"Live automation: failed to reach vMix — {ex.Message}", now);
+                return;
             }
+
+            var active = status.FindActive();
+            var fieldName = string.IsNullOrWhiteSpace(txtFieldName.Text) ? "Headline.Text" : txtFieldName.Text.Trim();
+
+            if ((now - _lastNowNextUpdate).TotalSeconds >= GetNowNextIntervalSeconds())
+            {
+                await UpdateNowNextAsync(host, port, active, fieldName, now);
+                _lastNowNextUpdate = now;
+            }
+            await UpdateBackinAsync(host, port, active, fieldName, now);
+            await HandleAdOverlayStateAsync(host, port, active);
+            await HandleAutoFillerAsync(host, port, active, now);
+
+            if (!_adOverlaysOff)
+                await UpdateOverlay2Async(host, port, active, now);
+
+            _previousActiveKey = active?.Key;
         }
-        if (due.Count > 0) RefreshGrid();
-
-        if (_rules.Count == 0 && _roleInputs.Count == 0) return;
-
-        VmixStatus status;
-        try
+        finally
         {
-            status = await _client.GetStatusAsync(host, port);
+            _isTickRunning = false;
         }
-        catch (Exception ex)
-        {
-            LogThrottled($"Live automation: failed to reach vMix — {ex.Message}", now);
-            return;
-        }
-
-        var active = status.FindActive();
-        var fieldName = string.IsNullOrWhiteSpace(txtFieldName.Text) ? "Headline.Text" : txtFieldName.Text.Trim();
-
-        await UpdateNowNextAsync(host, port, active, fieldName, now);
-        await UpdateBackinAsync(host, port, active, fieldName, now);
-        await HandleAdOverlayStateAsync(host, port, active);
-        await HandleAutoFillerAsync(host, port, active, now);
-
-        if (!_adOverlaysOff)
-            await UpdateOverlay2Async(host, port, active, now);
     }
 
     private async Task UpdateNowNextAsync(string host, int port, VmixInput? active, string fieldName, DateTime now)
     {
-        // Always show the actual file name that's playing, not the input's (renamed) title.
-        var nowText = active?.CurrentSongTitle ?? active?.Name ?? "";
+        var activeRule = active != null ? _rules.FirstOrDefault(r => r.InputKey == active.Key) : null;
+        var nowText = BestDisplayText(active, activeRule);
 
         var nextRule = _rules
             .Select(r => (Rule: r, Next: r.ComputeNextOccurrence(now)))
@@ -311,7 +352,7 @@ public partial class Form1 : Form
             .FirstOrDefault();
 
         var nextInputForFile = nextRule != null ? _lastInputs.FirstOrDefault(i => i.Key == nextRule.InputKey) : null;
-        var nextText = nextInputForFile?.CurrentSongTitle ?? nextRule?.DisplayName ?? "";
+        var nextText = BestDisplayText(nextInputForFile, nextRule);
 
         if (_roleInputs.TryGetValue("Now", out var nowInput))
             await TrySetText(host, port, nowInput.Key, fieldName, nowText, now);
@@ -328,6 +369,19 @@ public partial class Form1 : Form
             if (_roleInputs.TryGetValue("NextSong", out var nextSongInput))
                 await TrySetText(host, port, nextSongInput.Key, fieldName, active!.NextSongTitle ?? "", now);
         }
+    }
+
+    /// <summary>
+    /// Picks what to show on a Now/Next graphic: always the actual media file name — the playing
+    /// list item for list inputs (e.g. Filler), else the underlying file (vMix's raw title,
+    /// unaffected by the schedule-code rename) — falling back to the schedule label/input name
+    /// only if no file name is available at all.
+    /// </summary>
+    private static string BestDisplayText(VmixInput? input, ScheduleRule? rule)
+    {
+        if (!string.IsNullOrEmpty(input?.CurrentSongTitle)) return input!.CurrentSongTitle!;
+        if (!string.IsNullOrEmpty(input?.FileName)) return input!.FileName!;
+        return rule?.DisplayName ?? input?.Name ?? "";
     }
 
     /// <summary>
@@ -390,7 +444,7 @@ public partial class Form1 : Form
         }
         else if (remaining <= Overlay2PopupOffsetMs && !_overlay2FiredForItem.Contains("end"))
         {
-            toShow = startRole;
+            toShow = midRole;
             _overlay2FiredForItem.Add("end");
         }
 
@@ -443,6 +497,9 @@ public partial class Form1 : Form
 
         if (adOnAir && !_adOverlaysOff)
         {
+            // Entering an ad break (or the first ad of a back-to-back pod) — remember what was
+            // on Program so HandleAutoFillerAsync can return to it once the ad(s) finish.
+            _preAdInputKey = _previousActiveKey;
             await SuppressAdOverlaysAsync(host, port);
             _adOverlaysOff = true;
         }
@@ -457,7 +514,6 @@ public partial class Form1 : Form
     {
         if (!_roleInputs.TryGetValue("Filler", out var filler)) return;
         if (active == null || active.Duration <= 0) return;
-        if (active.Number == filler.Number) return;
         if (active.Position < active.Duration - 300) return;
         if (now < _fillerCooldownUntil) return;
 
@@ -468,16 +524,54 @@ public partial class Form1 : Form
         });
         if (somethingDueSoon) return;
 
+        if (active.Number == filler.Number)
+        {
+            bool atLastItem = active.ListItems.Count == 0 || active.SelectedIndex >= active.ListItems.Count - 1;
+            if (!atLastItem) return; // vMix is already mid-list; let it keep advancing on its own
+
+            _fillerCooldownUntil = now.AddSeconds(5);
+            try
+            {
+                await _client.LoopListToStartAsync(host, port, filler.Key);
+                Log("Auto-filler: reached end of list, looping back to the first item.");
+            }
+            catch (Exception ex) { Log($"Auto-filler loop failed — {ex.Message}"); }
+            return;
+        }
+
+        // If what's ending is an ad, go back to whatever program was on air before the ad break
+        // instead of falling through to the filler — the filler is only for when there's truly
+        // nothing else to show.
+        var activeRule = _rules.FirstOrDefault(r => r.InputKey == active.Key);
+        bool activeIsAd = activeRule?.Category is ScheduleCategory.Ad or ScheduleCategory.LShapeAd;
+        if (activeIsAd && !string.IsNullOrEmpty(_preAdInputKey) && _preAdInputKey != active.Key)
+        {
+            var resumeKey = _preAdInputKey;
+            // Guard against resuming straight into another ad (e.g. _preAdInputKey captured mid
+            // ad-pod) — that would keep _adOverlaysOff stuck "true" forever since active would
+            // never become non-ad again.
+            var resumeRule = _rules.FirstOrDefault(r => r.InputKey == resumeKey);
+            bool resumeIsAlsoAd = resumeRule?.Category is ScheduleCategory.Ad or ScheduleCategory.LShapeAd;
+            if (!resumeIsAlsoAd)
+            {
+                _fillerCooldownUntil = now.AddSeconds(5);
+                try
+                {
+                    await _client.ResumeInputAsync(host, port, resumeKey);
+                    Log("Ad break ended, resuming previous program.");
+                }
+                catch (Exception ex) { Log($"Resuming previous program failed — {ex.Message}"); }
+                return;
+            }
+        }
+
         _fillerCooldownUntil = now.AddSeconds(5);
         try
         {
-            await _client.TriggerInputAsync(host, port, filler.Key);
+            await _client.ResumeInputAsync(host, port, filler.Key);
             Log($"Auto-filler: '{active.Name}' ended, switched to filler '{filler.Name}'.");
         }
-        catch (Exception ex)
-        {
-            Log($"Auto-filler trigger failed — {ex.Message}");
-        }
+        catch (Exception ex) { Log($"Auto-filler trigger failed — {ex.Message}"); }
     }
 
     private async Task TrySetText(string host, int port, string inputKey, string fieldName, string value, DateTime now)

@@ -49,6 +49,9 @@ partial class Form1
         this.lblRoleOverlay4 = new Label();
         this.lblRoleOverlay4Value = new Label();
 
+        this.lblNowNextInterval = new Label();
+        this.cmbNowNextInterval = new ComboBox();
+
         this.dgvSchedule = new DataGridView();
         this.colRawTitle = new DataGridViewTextBoxColumn();
         this.colDisplayName = new DataGridViewTextBoxColumn();
@@ -106,6 +109,16 @@ partial class Form1
         this.txtFieldName.Size = new Size(150, 23);
         this.txtFieldName.Text = "Headline.Text";
 
+        this.lblNowNextInterval.AutoSize = true;
+        this.lblNowNextInterval.Location = new Point(450, 23);
+        this.lblNowNextInterval.Text = "NOW/NEXT refresh:";
+
+        this.cmbNowNextInterval.Location = new Point(600, 20);
+        this.cmbNowNextInterval.Size = new Size(80, 23);
+        this.cmbNowNextInterval.DropDownStyle = ComboBoxStyle.DropDownList;
+        this.cmbNowNextInterval.Items.AddRange(new object[] { "1s", "2s", "5s", "10s", "30s", "1 min", "10 min" });
+        this.cmbNowNextInterval.SelectedItem = "10 min";
+
         SetupRolePair(this.lblRoleFiller, this.lblRoleFillerValue, "Filler:", 15, 55);
         SetupRolePair(this.lblRoleNow, this.lblRoleNowValue, "Now:", 440, 55);
         SetupRolePair(this.lblRoleNext, this.lblRoleNextValue, "Next:", 15, 78);
@@ -119,6 +132,8 @@ partial class Form1
 
         this.grpRoles.Controls.Add(this.lblFieldName);
         this.grpRoles.Controls.Add(this.txtFieldName);
+        this.grpRoles.Controls.Add(this.lblNowNextInterval);
+        this.grpRoles.Controls.Add(this.cmbNowNextInterval);
         this.grpRoles.Controls.Add(this.lblRoleFiller);
         this.grpRoles.Controls.Add(this.lblRoleFillerValue);
         this.grpRoles.Controls.Add(this.lblRoleNow);
@@ -202,6 +217,7 @@ partial class Form1
         this.ClientSize = new Size(884, 720);
         this.MinimumSize = new Size(700, 600);
         this.Text = "vMix Scheduler";
+        this.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         this.Controls.Add(this.lblHost);
         this.Controls.Add(this.txtHost);
         this.Controls.Add(this.lblPort);
@@ -261,6 +277,9 @@ partial class Form1
     private Label lblRoleOverlay3Value;
     private Label lblRoleOverlay4;
     private Label lblRoleOverlay4Value;
+
+    private Label lblNowNextInterval;
+    private ComboBox cmbNowNextInterval;
 
     private DataGridView dgvSchedule;
     private DataGridViewTextBoxColumn colRawTitle;

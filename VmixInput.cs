@@ -19,6 +19,10 @@ public class VmixInput
     public string? CurrentSongTitle => FileDisplayName(SelectedIndex >= 0 && SelectedIndex < ListItems.Count ? ListItems[SelectedIndex] : null);
     public string? NextSongTitle => FileDisplayName(SelectedIndex >= 0 && SelectedIndex + 1 < ListItems.Count ? ListItems[SelectedIndex + 1] : null);
 
+    /// <summary>The underlying media file name, extension stripped — vMix's raw "title" is always
+    /// the original file/media name, unaffected by an operator's rename (ShortTitle).</summary>
+    public string? FileName => FileDisplayName(Title);
+
     /// <summary>vMix list items are full file paths; show just the filename without extension.</summary>
     private static string? FileDisplayName(string? path)
     {
