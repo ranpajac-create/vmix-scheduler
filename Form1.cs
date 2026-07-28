@@ -324,6 +324,7 @@ public partial class Form1 : Form
                 await UpdateNowNextAsync(host, port, active, fieldName, now);
                 _lastNowNextUpdate = now;
             }
+            await UpdateNowNextSongAsync(host, port, active, fieldName, now);
             await UpdateBackinAsync(host, port, active, fieldName, now);
             await HandleAdOverlayStateAsync(host, port, active);
             await HandleAutoFillerAsync(host, port, active, now);
@@ -359,7 +360,15 @@ public partial class Form1 : Form
 
         if (_roleInputs.TryGetValue("Next", out var nextInput))
             await TrySetText(host, port, nextInput.Key, fieldName, nextText, now);
+    }
 
+    /// <summary>
+    /// Keeps NowSong/NextSong tracking the actively-playing Filler list item every tick —
+    /// unlike UpdateNowNextAsync, this must not be throttled by the Now/Next interval, since
+    /// songs can change far more often than that interval.
+    /// </summary>
+    private async Task UpdateNowNextSongAsync(string host, int port, VmixInput? active, string fieldName, DateTime now)
+    {
         bool isFillerActive = active != null && _roleInputs.TryGetValue("Filler", out var fillerForSong) && active.Number == fillerForSong.Number;
         if (isFillerActive)
         {
