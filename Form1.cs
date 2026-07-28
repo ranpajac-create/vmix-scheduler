@@ -334,6 +334,13 @@ public partial class Form1 : Form
 
             _previousActiveKey = active?.Key;
         }
+        catch (Exception ex)
+        {
+            // The automation tick drives live output every second — an unhandled exception here
+            // would propagate out of this async void handler and take the whole app down mid-show.
+            // Log and keep ticking instead of crashing.
+            Log($"Unexpected error during automation tick — {ex.Message}");
+        }
         finally
         {
             _isTickRunning = false;
