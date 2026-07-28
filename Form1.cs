@@ -7,7 +7,6 @@ public partial class Form1 : Form
     private static readonly int[] AutomatedOverlayChannels = { 1, 2, 3, 4 };
     private static readonly int[] StaticOverlayChannels = { 1, 3, 4 }; // fixed-content overlays restored with a pinned input
 
-    private const int Overlay2PopupOffsetMs = 10_000; // trigger points: 10s after start / 10s before end
     private const int Overlay2PopupDurationMs = 8_000; // how long each graphic stays visible
 
     private readonly VmixClient _client;
@@ -29,9 +28,15 @@ public partial class Form1 : Form
     private string? _preAdInputKey;
 
     private string? _overlay2ItemKey;
-    private readonly HashSet<string> _overlay2FiredForItem = new();
     private bool _overlay2Visible;
     private DateTime _overlay2HideAt = DateTime.MinValue;
+
+    // Repeats a Now-then-Next (or NowSong-then-NextSong) popup every configured interval —
+    // NOW/NEXT Interval for a Program, NOWSong/NEXTSong Interval for the Filler — rather than
+    // pegging it to any one item's own duration, since a Program (e.g. a multi-hour movie block)
+    // or the Filler can run far longer than a single popup cycle.
+    private readonly Queue<string> _overlay2Queue = new();
+    private DateTime _overlay2NextCycleAt = DateTime.MinValue;
 
     private const int AutoSyncIntervalSeconds = 15;
     private bool _isSyncing;
@@ -51,17 +56,20 @@ public partial class Form1 : Form
 
     private int GetPort() => int.TryParse(txtPort.Text.Trim(), out var p) ? p : 8088;
 
-    private int GetNowNextIntervalSeconds() => cmbNowNextInterval.SelectedItem?.ToString() switch
+    private int GetNowNextIntervalSeconds() => ParseIntervalSeconds(cmbNowNextInterval.SelectedItem?.ToString());
+
+    private int GetNowNextSongIntervalSeconds() => ParseIntervalSeconds(cmbNowNextSongInterval.SelectedItem?.ToString());
+
+    /// <summary>Parses combo values like "20 min" or "10s" into seconds.</summary>
+    private static int ParseIntervalSeconds(string? selection)
     {
-        "1s" => 1,
-        "2s" => 2,
-        "5s" => 5,
-        "10s" => 10,
-        "30s" => 30,
-        "1 min" => 60,
-        "10 min" => 600,
-        _ => 5,
-    };
+        var trimmed = selection?.Trim() ?? "";
+        if (trimmed.EndsWith("min", StringComparison.OrdinalIgnoreCase))
+            return int.TryParse(trimmed[..^3].Trim(), out var minutes) ? minutes * 60 : 5;
+        if (trimmed.EndsWith("s", StringComparison.OrdinalIgnoreCase))
+            return int.TryParse(trimmed[..^1].Trim(), out var seconds) ? seconds : 5;
+        return 5;
+    }
 
     private void Log(string message)
     {
@@ -315,7 +323,7 @@ public partial class Form1 : Form
             }
 
             var active = status.FindActive();
-            var fieldName = string.IsNullOrWhiteSpace(txtFieldName.Text) ? "Headline.Text" : txtFieldName.Text.Trim();
+            const string fieldName = "Headline.Text";
 
             if ((now - _lastNowNextUpdate).TotalSeconds >= GetNowNextIntervalSeconds())
             {
@@ -390,9 +398,10 @@ public partial class Form1 : Form
     }
 
     /// <summary>
-    /// Overlay2 is a shared "ticker" channel: it cycles Now/Next graphics while a scheduled
-    /// Program is on air, and NowSong/NextSong graphics while the Filler is on air, popping up
-    /// at start (+10s), mid-point, and end (-10s) of the current item and hiding after a fixed duration.
+    /// Overlay2 is a shared "ticker" channel: every configured interval it pops up Now then Next
+    /// (or NowSong then NextSong) back-to-back, then hides until the next interval elapses —
+    /// NOW/NEXT Interval while a scheduled Program is on air, NOWSong/NEXTSong Interval while the
+    /// Filler is on air.
     /// </summary>
     private async Task UpdateOverlay2Async(string host, int port, VmixInput? active, DateTime now)
     {
@@ -412,60 +421,49 @@ public partial class Form1 : Form
             return;
         }
 
-        var itemKey = isFiller ? $"{active.Key}|{active.CurrentSongTitle}" : active.Key;
-        if (itemKey != _overlay2ItemKey)
+        var intervalSeconds = isProgram ? GetNowNextIntervalSeconds() : GetNowNextSongIntervalSeconds();
+
+        if (active.Key != _overlay2ItemKey)
         {
-            _overlay2ItemKey = itemKey;
-            _overlay2FiredForItem.Clear();
+            _overlay2ItemKey = active.Key;
             _overlay2Visible = false;
+            _overlay2Queue.Clear();
+            _overlay2NextCycleAt = now.AddSeconds(intervalSeconds);
         }
 
         // Let whatever's currently showing finish its full visible window before considering
-        // the next trigger — otherwise, if several thresholds are already satisfied at once
-        // (e.g. right after the app restarts mid-clip), they'd replace each other every tick.
+        // the next popup — otherwise, if the interval is shorter than one full display cycle,
+        // it would replace itself every tick instead of holding for the popup duration.
         if (_overlay2Visible)
         {
             if (now < _overlay2HideAt) return;
             await HideOverlay2IfVisible(host, port);
         }
 
-        var elapsed = active.Position;
-        var remaining = active.Duration - active.Position;
-        var midpoint = active.Duration / 2;
-
-        var startRole = isProgram ? "Now" : "NowSong";
-        var midRole = isProgram ? "Next" : "NextSong";
-
-        string? toShow = null;
-        if (elapsed >= Overlay2PopupOffsetMs && !_overlay2FiredForItem.Contains("start"))
+        if (_overlay2Queue.Count == 0)
         {
-            toShow = startRole;
-            _overlay2FiredForItem.Add("start");
-        }
-        else if (elapsed >= midpoint && !_overlay2FiredForItem.Contains("mid"))
-        {
-            toShow = midRole;
-            _overlay2FiredForItem.Add("mid");
-        }
-        else if (remaining <= Overlay2PopupOffsetMs && !_overlay2FiredForItem.Contains("end"))
-        {
-            toShow = midRole;
-            _overlay2FiredForItem.Add("end");
+            if (now < _overlay2NextCycleAt) return;
+            _overlay2Queue.Enqueue(isProgram ? "Now" : "NowSong");
+            _overlay2Queue.Enqueue(isProgram ? "Next" : "NextSong");
+            _overlay2NextCycleAt = now.AddSeconds(intervalSeconds);
         }
 
-        if (toShow != null && _roleInputs.TryGetValue(toShow, out var showInput))
+        await ShowOverlay2Async(host, port, _overlay2Queue.Dequeue(), now);
+    }
+
+    private async Task ShowOverlay2Async(string host, int port, string? role, DateTime now)
+    {
+        if (role == null || !_roleInputs.TryGetValue(role, out var showInput)) return;
+        try
         {
-            try
-            {
-                await _client.OverlayOnAsync(host, port, 2, showInput.Key);
-                _overlay2Visible = true;
-                _overlay2HideAt = now.AddMilliseconds(Overlay2PopupDurationMs);
-                Log($"Overlay2: showing '{toShow}'.");
-            }
-            catch (Exception ex)
-            {
-                LogThrottled($"Overlay2 show failed — {ex.Message}", now);
-            }
+            await _client.OverlayOnAsync(host, port, 2, showInput.Key);
+            _overlay2Visible = true;
+            _overlay2HideAt = now.AddMilliseconds(Overlay2PopupDurationMs);
+            Log($"Overlay2: showing '{role}'.");
+        }
+        catch (Exception ex)
+        {
+            LogThrottled($"Overlay2 show failed — {ex.Message}", now);
         }
     }
 

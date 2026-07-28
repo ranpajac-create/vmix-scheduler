@@ -25,8 +25,8 @@ partial class Form1
         this.lblConnectionStatus = new Label();
 
         this.grpRoles = new GroupBox();
-        this.lblFieldName = new Label();
-        this.txtFieldName = new TextBox();
+        this.lblNowNextSongInterval = new Label();
+        this.cmbNowNextSongInterval = new ComboBox();
 
         this.lblRoleFiller = new Label();
         this.lblRoleFillerValue = new Label();
@@ -101,22 +101,24 @@ partial class Form1
         this.grpRoles.Size = new Size(860, 180);
         this.grpRoles.Text = "Auto-Detected Roles (rename vMix inputs to these exact names)";
 
-        this.lblFieldName.AutoSize = true;
-        this.lblFieldName.Location = new Point(15, 23);
-        this.lblFieldName.Text = "Title Field Name (used for all text overlays):";
+        this.lblNowNextSongInterval.AutoSize = true;
+        this.lblNowNextSongInterval.Location = new Point(15, 23);
+        this.lblNowNextSongInterval.Text = "NOWSong/NEXTSong Interval:";
 
-        this.txtFieldName.Location = new Point(280, 20);
-        this.txtFieldName.Size = new Size(150, 23);
-        this.txtFieldName.Text = "Headline.Text";
+        this.cmbNowNextSongInterval.Location = new Point(280, 20);
+        this.cmbNowNextSongInterval.Size = new Size(80, 23);
+        this.cmbNowNextSongInterval.DropDownStyle = ComboBoxStyle.DropDownList;
+        this.cmbNowNextSongInterval.Items.AddRange(new object[] { "1 min", "2 min", "3 min" });
+        this.cmbNowNextSongInterval.SelectedItem = "1 min";
 
         this.lblNowNextInterval.AutoSize = true;
         this.lblNowNextInterval.Location = new Point(450, 23);
-        this.lblNowNextInterval.Text = "NOW/NEXT refresh:";
+        this.lblNowNextInterval.Text = "NOW/NEXT Interval:";
 
         this.cmbNowNextInterval.Location = new Point(600, 20);
         this.cmbNowNextInterval.Size = new Size(80, 23);
         this.cmbNowNextInterval.DropDownStyle = ComboBoxStyle.DropDownList;
-        this.cmbNowNextInterval.Items.AddRange(new object[] { "1s", "2s", "5s", "10s", "30s", "1 min", "10 min" });
+        this.cmbNowNextInterval.Items.AddRange(new object[] { "5 min", "10 min", "20 min" });
         this.cmbNowNextInterval.SelectedItem = "10 min";
 
         SetupRolePair(this.lblRoleFiller, this.lblRoleFillerValue, "Filler:", 15, 55);
@@ -130,8 +132,8 @@ partial class Form1
         SetupRolePair(this.lblRoleOverlay3, this.lblRoleOverlay3Value, "Overlay3:", 15, 147);
         SetupRolePair(this.lblRoleOverlay4, this.lblRoleOverlay4Value, "Overlay4:", 440, 147);
 
-        this.grpRoles.Controls.Add(this.lblFieldName);
-        this.grpRoles.Controls.Add(this.txtFieldName);
+        this.grpRoles.Controls.Add(this.lblNowNextSongInterval);
+        this.grpRoles.Controls.Add(this.cmbNowNextSongInterval);
         this.grpRoles.Controls.Add(this.lblNowNextInterval);
         this.grpRoles.Controls.Add(this.cmbNowNextInterval);
         this.grpRoles.Controls.Add(this.lblRoleFiller);
@@ -255,8 +257,8 @@ partial class Form1
     private Label lblConnectionStatus;
 
     private GroupBox grpRoles;
-    private Label lblFieldName;
-    private TextBox txtFieldName;
+    private Label lblNowNextSongInterval;
+    private ComboBox cmbNowNextSongInterval;
     private Label lblRoleFiller;
     private Label lblRoleFillerValue;
     private Label lblRoleNow;
