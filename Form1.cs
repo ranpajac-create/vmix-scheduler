@@ -349,8 +349,7 @@ public partial class Form1 : Form
 
     private async Task UpdateNowNextAsync(string host, int port, VmixInput? active, string fieldName, DateTime now)
     {
-        var activeRule = active != null ? _rules.FirstOrDefault(r => r.InputKey == active.Key) : null;
-        var nowText = BestDisplayText(active, activeRule);
+        var nowText = BestDisplayText(active);
 
         var nextRule = _rules
             .Select(r => (Rule: r, Next: r.ComputeNextOccurrence(now)))
@@ -360,7 +359,7 @@ public partial class Form1 : Form
             .FirstOrDefault();
 
         var nextInputForFile = nextRule != null ? _lastInputs.FirstOrDefault(i => i.Key == nextRule.InputKey) : null;
-        var nextText = BestDisplayText(nextInputForFile, nextRule);
+        var nextText = BestDisplayText(nextInputForFile);
 
         if (_roleInputs.TryGetValue("Now", out var nowInput))
             await TrySetText(host, port, nowInput.Key, fieldName, nowText, now);
@@ -388,16 +387,17 @@ public partial class Form1 : Form
     }
 
     /// <summary>
-    /// Picks what to show on a Now/Next graphic: always the actual media file name — the playing
-    /// list item for list inputs (e.g. Filler), else the underlying file (vMix's raw title,
-    /// unaffected by the schedule-code rename) — falling back to the schedule label/input name
-    /// only if no file name is available at all.
+    /// Picks what to show on a Now/Next graphic: only ever the actual media file name — the
+    /// playing list item for list inputs (e.g. Filler), else the underlying file (vMix's raw
+    /// title, unaffected by the schedule-code rename). Input/schedule names are never shown as a
+    /// substitute — if vMix has no file name left to give (e.g. a renamed single-file input with
+    /// no list to fall back on), this returns empty rather than the input's rename.
     /// </summary>
-    private static string BestDisplayText(VmixInput? input, ScheduleRule? rule)
+    private static string BestDisplayText(VmixInput? input)
     {
         if (!string.IsNullOrEmpty(input?.CurrentSongTitle)) return input!.CurrentSongTitle!;
         if (!string.IsNullOrEmpty(input?.FileName)) return input!.FileName!;
-        return rule?.DisplayName ?? input?.Name ?? "";
+        return "";
     }
 
     /// <summary>
