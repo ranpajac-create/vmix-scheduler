@@ -13,7 +13,6 @@ public partial class Form1 : Form
     private readonly VmixClient _client;
     private readonly Dictionary<string, VmixInput> _roleInputs = new(StringComparer.OrdinalIgnoreCase);
     private List<ScheduleRule> _rules = new();
-    private List<VmixInput> _lastInputs = new();
 
     private DateTime _fillerCooldownUntil = DateTime.MinValue;
     private DateTime _lastAutomationErrorLog = DateTime.MinValue;
@@ -100,7 +99,6 @@ public partial class Form1 : Form
         try
         {
             var inputs = await _client.GetInputsAsync(host, port);
-            _lastInputs = inputs;
             SyncRoles(inputs);
             SyncRules(inputs);
             RefreshGrid();
@@ -350,16 +348,7 @@ public partial class Form1 : Form
     private async Task UpdateNowNextAsync(string host, int port, VmixInput? active, string fieldName, DateTime now)
     {
         var nowText = BestDisplayText(active);
-
-        var nextRule = _rules
-            .Select(r => (Rule: r, Next: r.ComputeNextOccurrence(now)))
-            .Where(x => x.Next.HasValue)
-            .OrderBy(x => x.Next)
-            .Select(x => x.Rule)
-            .FirstOrDefault();
-
-        var nextInputForFile = nextRule != null ? _lastInputs.FirstOrDefault(i => i.Key == nextRule.InputKey) : null;
-        var nextText = BestDisplayText(nextInputForFile);
+        var nextText = active?.NextSongTitle ?? "";
 
         if (_roleInputs.TryGetValue("Now", out var nowInput))
             await TrySetText(host, port, nowInput.Key, fieldName, nowText, now);
