@@ -95,6 +95,18 @@ public class VmixClient
         await CallFunctionAsync(host, port, "Play", inputKey);
     }
 
+    /// <summary>
+    /// Freezes an input at its current position instead of leaving it playing off-air. Without
+    /// this, whatever gets cut away from (e.g. a Program interrupted by an Ad) keeps rolling in
+    /// the background for the whole interruption — if it's short enough, or set to loop, it can
+    /// wrap back to its own start before the interruption even ends, so "resuming" it later
+    /// (CutDirect+Play, no restart) lands right back at 0:00 anyway despite never being told to.
+    /// </summary>
+    public async Task PauseInputAsync(string host, int port, string inputKey)
+    {
+        await CallFunctionAsync(host, port, "Pause", inputKey);
+    }
+
     public async Task LoopListToStartAsync(string host, int port, string inputKey)
     {
         await CallFunctionAsync(host, port, "SelectIndex", inputKey, "1"); // vMix list indices are 1-based

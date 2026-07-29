@@ -160,6 +160,19 @@ public class VmixClientTests
     }
 
     [Fact]
+    public async Task PauseInputAsync_TargetsCorrectInput()
+    {
+        var handler = new FakeHttpMessageHandler(_ => "<vmix></vmix>");
+        var client = new VmixClient(handler);
+
+        await client.PauseInputAsync("127.0.0.1", 8088, "key1");
+
+        var url = Assert.Single(handler.RequestedUrls);
+        Assert.Contains("Function=Pause", url);
+        Assert.Contains("Input=key1", url);
+    }
+
+    [Fact]
     public async Task LoopListToStartAsync_SelectsIndex1ThenPlays()
     {
         var handler = new FakeHttpMessageHandler(_ => "<vmix></vmix>");

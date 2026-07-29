@@ -337,6 +337,7 @@ public partial class Form1 : Form
     {
         await _client.TriggerInputAsync(host, port, rule.InputKey);
         rule.LastFiredOccurrence = occurrence;
+        await PauseOutgoingInputAsync(host, port, _previousActiveKey, rule.InputKey);
 
         // Suppress immediately so there's no gap between the cut and the overlays dropping;
         // HandleAdOverlayStateAsync (driven off what's actually on Program) keeps this in sync
@@ -377,6 +378,19 @@ public partial class Form1 : Form
         if (any) Log($"{reason} — overlays 1,3,4 confirmed on.");
         // Overlay2 is dynamic (Now/Next/NowSong/NextSong cycling) — left off here; UpdateOverlay2Async
         // brings the right graphic back at its next trigger point instead of pinning a fixed input.
+    }
+
+    /// <summary>
+    /// Freezes whatever's being cut away from so it can resume from this exact point later
+    /// instead of drifting (or looping back to its own start) while off-air for however long the
+    /// interruption lasts. Called after the cut completes, not before — pausing something that's
+    /// still on Program would freeze the actual broadcast output for a moment.
+    /// </summary>
+    private async Task PauseOutgoingInputAsync(string host, int port, string? outgoingKey, string incomingKey)
+    {
+        if (string.IsNullOrEmpty(outgoingKey) || outgoingKey == incomingKey) return;
+        try { await _client.PauseInputAsync(host, port, outgoingKey); }
+        catch (Exception ex) { Log($"Pausing outgoing input failed — {ex.Message}"); }
     }
 
     // ---------- Main tick ----------
@@ -677,6 +691,7 @@ public partial class Form1 : Form
                 {
                     await _client.ResumeInputAsync(host, port, resumeKey);
                     Log("Ad break ended, resuming previous program.");
+                    await PauseOutgoingInputAsync(host, port, active.Key, resumeKey);
                 }
                 catch (Exception ex) { Log($"Resuming previous program failed — {ex.Message}"); }
                 return;
@@ -688,6 +703,7 @@ public partial class Form1 : Form
         {
             await _client.ResumeInputAsync(host, port, filler.Key);
             Log($"Auto-filler: '{active.Name}' ended, switched to filler '{filler.Name}'.");
+            await PauseOutgoingInputAsync(host, port, active.Key, filler.Key);
         }
         catch (Exception ex) { Log($"Auto-filler trigger failed — {ex.Message}"); }
     }
@@ -710,6 +726,7 @@ public partial class Form1 : Form
             await _client.TriggerInputAsync(host, port, promo.Key);
             Log($"Promo: triggered '{promo.Name}'.");
             RecordAsRun("Promo", "Promo", promo.Name, promo.Name, now);
+            await PauseOutgoingInputAsync(host, port, _previousActiveKey, promo.Key);
         }
         catch (Exception ex) { Log($"Promo trigger failed — {ex.Message}"); }
     }
