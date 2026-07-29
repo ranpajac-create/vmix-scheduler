@@ -40,10 +40,6 @@ public partial class Form1 : Form
     // it last actually fired (not wall-clock aligned) — see HandlePromoAsync.
     private DateTime _lastPromoFiredAt = DateTime.MinValue;
 
-    // Daily CSV of everything that actually aired — proof-of-air for sponsors/ad buyers, built
-    // from the same fire events already driving the Log panel (see RecordAsRun).
-    private static readonly string AsRunLogDirectory = Path.Combine(AppPaths.DataDirectory, "AsRunLogs");
-
     private const int AutoSyncIntervalSeconds = 15;
     private bool _isSyncing;
     private DateTime _lastAutoSync = DateTime.MinValue;
@@ -60,7 +56,7 @@ public partial class Form1 : Form
         UpdateStartStopButtons();
         Log($"vMix Scheduler started (build {GetBuildHash()}).");
         Log("Rename vMix inputs per the naming convention — syncing automatically.");
-        Log($"As-run log: {AsRunLogDirectory}");
+        Log($"As-run log: {AppPaths.AsRunLogDirectory}");
         _ = SyncFromVmixAsync(silent: false);
     }
 
@@ -162,28 +158,22 @@ public partial class Form1 : Form
     {
         try
         {
-            Directory.CreateDirectory(AsRunLogDirectory);
-            var path = Path.Combine(AsRunLogDirectory, $"as-run-{timestamp:yyyy-MM-dd}.csv");
+            Directory.CreateDirectory(AppPaths.AsRunLogDirectory);
+            var path = Path.Combine(AppPaths.AsRunLogDirectory, $"as-run-{timestamp:yyyy-MM-dd}.csv");
             bool isNew = !File.Exists(path);
             using var writer = new StreamWriter(path, append: true);
             if (isNew) writer.WriteLine("Timestamp,TriggerType,Category,DisplayName,RawTitle");
             writer.WriteLine(string.Join(",",
-                CsvField(timestamp.ToString("yyyy-MM-dd HH:mm:ss")),
-                CsvField(triggerType),
-                CsvField(category),
-                CsvField(displayName),
-                CsvField(rawTitle)));
+                CsvUtil.EscapeField(timestamp.ToString("yyyy-MM-dd HH:mm:ss")),
+                CsvUtil.EscapeField(triggerType),
+                CsvUtil.EscapeField(category),
+                CsvUtil.EscapeField(displayName),
+                CsvUtil.EscapeField(rawTitle)));
         }
         catch (Exception ex)
         {
             LogThrottled($"As-run log write failed — {ex.Message}", timestamp);
         }
-    }
-
-    private static string CsvField(string value)
-    {
-        if (value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) < 0) return value;
-        return "\"" + value.Replace("\"", "\"\"") + "\"";
     }
 
     // ---------- Refresh & sync ----------
@@ -329,6 +319,11 @@ public partial class Form1 : Form
         {
             Log($"FAILED to manually trigger '{rule.DisplayName}' — {ex.Message}");
         }
+    }
+
+    private void btnViewAsRunLog_Click(object? sender, EventArgs e)
+    {
+        new AsRunLogViewerForm().Show(this);
     }
 
     // ---------- Firing rules ----------

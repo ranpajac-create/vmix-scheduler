@@ -80,6 +80,7 @@ partial class Form1
         this.colStatus = new DataGridViewTextBoxColumn();
 
         this.btnTriggerSelected = new Button();
+        this.btnViewAsRunLog = new Button();
 
         this.lblLog = new Label();
         this.txtLog = new TextBox();
@@ -327,6 +328,12 @@ partial class Form1
         this.btnTriggerSelected.Text = "Trigger Selected Now";
         this.btnTriggerSelected.Click += new EventHandler(this.btnTriggerSelected_Click);
 
+        this.btnViewAsRunLog.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
+        this.btnViewAsRunLog.Location = new Point(182, 721);
+        this.btnViewAsRunLog.Size = new Size(160, 27);
+        this.btnViewAsRunLog.Text = "View As-Run Log";
+        this.btnViewAsRunLog.Click += new EventHandler(this.btnViewAsRunLog_Click);
+
         this.lblLog.AutoSize = true;
         this.lblLog.Anchor = AnchorStyles.Bottom | AnchorStyles.Left;
         this.lblLog.Location = new Point(12, 759);
@@ -360,6 +367,7 @@ partial class Form1
         this.Controls.Add(this.grpAutomation);
         this.Controls.Add(this.dgvSchedule);
         this.Controls.Add(this.btnTriggerSelected);
+        this.Controls.Add(this.btnViewAsRunLog);
         this.Controls.Add(this.lblLog);
         this.Controls.Add(this.txtLog);
 
@@ -448,6 +456,7 @@ partial class Form1
     private DataGridViewTextBoxColumn colStatus;
 
     private Button btnTriggerSelected;
+    private Button btnViewAsRunLog;
     private Label lblLog;
     private TextBox txtLog;
     private System.Windows.Forms.Timer tmrCheck;

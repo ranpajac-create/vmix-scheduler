@@ -12,4 +12,6 @@ public static class AppPaths
 {
     public static readonly string DataDirectory = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "VmixScheduler");
+
+    public static readonly string AsRunLogDirectory = Path.Combine(DataDirectory, "AsRunLogs");
 }
