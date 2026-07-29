@@ -3,11 +3,9 @@ namespace VmixScheduler;
 public partial class Form1 : Form
 {
     private static readonly string[] RoleNames =
-        { "Filler", "Now", "Next", "NowSong", "NextSong", "Backin", "Overlay1", "Overlay2", "Overlay3", "Overlay4" };
+        { "Filler", "Now", "Next", "NowSong", "NextSong", "Backin", "Overlay1", "Overlay2", "Overlay3", "Overlay4", "Promo" };
     private static readonly int[] AutomatedOverlayChannels = { 1, 2, 3, 4 };
     private static readonly int[] StaticOverlayChannels = { 1, 3, 4 }; // fixed-content overlays restored with a pinned input
-
-    private const int Overlay2PopupDurationMs = 8_000; // how long each graphic stays visible
 
     private readonly VmixClient _client;
     private readonly Dictionary<string, VmixInput> _roleInputs = new(StringComparer.OrdinalIgnoreCase);
@@ -38,6 +36,10 @@ public partial class Form1 : Form
     private readonly Queue<string> _overlay2Queue = new();
     private DateTime _overlay2NextCycleAt = DateTime.MinValue;
 
+    // Promo fires independently of the schedule grid, on its own rolling cooldown from whenever
+    // it last actually fired (not wall-clock aligned) — see HandlePromoAsync.
+    private DateTime _lastPromoFiredAt = DateTime.MinValue;
+
     private const int AutoSyncIntervalSeconds = 15;
     private bool _isSyncing;
     private DateTime _lastAutoSync = DateTime.MinValue;
@@ -49,10 +51,33 @@ public partial class Form1 : Form
     {
         InitializeComponent();
         _client = new VmixClient();
-        tmrCheck.Start();
+        _lastPromoFiredAt = DateTime.Now;
+        if (chkAutoStart.Checked)
+            tmrCheck.Start();
+        UpdateStartStopButtons();
         Log($"vMix Scheduler started (build {GetBuildHash()}).");
         Log("Rename vMix inputs per the naming convention — syncing automatically.");
         _ = SyncFromVmixAsync(silent: false);
+    }
+
+    private void btnStart_Click(object? sender, EventArgs e)
+    {
+        tmrCheck.Start();
+        UpdateStartStopButtons();
+        Log("Automation started.");
+    }
+
+    private void btnStop_Click(object? sender, EventArgs e)
+    {
+        tmrCheck.Stop();
+        UpdateStartStopButtons();
+        Log("Automation stopped.");
+    }
+
+    private void UpdateStartStopButtons()
+    {
+        btnStart.Enabled = !tmrCheck.Enabled;
+        btnStop.Enabled = tmrCheck.Enabled;
     }
 
     // Short git commit hash embedded at build time via the SourceRevisionId MSBuild property
@@ -71,8 +96,6 @@ public partial class Form1 : Form
 
     private int GetNowNextIntervalSeconds() => ParseIntervalSeconds(cmbNowNextInterval.SelectedItem?.ToString());
 
-    private int GetNowNextSongIntervalSeconds() => ParseIntervalSeconds(cmbNowNextSongInterval.SelectedItem?.ToString());
-
     /// <summary>Parses combo values like "20 min" or "10s" into seconds.</summary>
     private static int ParseIntervalSeconds(string? selection)
     {
@@ -83,6 +106,36 @@ public partial class Form1 : Form
             return int.TryParse(trimmed[..^1].Trim(), out var seconds) ? seconds : 5;
         return 5;
     }
+
+    private int GetNowNextSongIntervalSeconds() => (int)numSongInterval.Value;
+
+    private int GetNowNextDurationMs() => (int)numNowNextDuration.Value * 1000;
+
+    private int GetSongDurationMs() => (int)numSongDuration.Value * 1000;
+
+    private int GetTriggerOffsetSeconds() => (int)numTriggerOffset.Value;
+
+    private int GetPromoIntervalSeconds() => (int)numPromoInterval.Value * 60;
+
+    /// <summary>Ad/L-shape-ad rules only fire within this window; non-crossing-midnight (From &lt; To).</summary>
+    private bool IsWithinAdsWindow(DateTime now)
+    {
+        var from = dtpAdsFrom.Value.TimeOfDay;
+        var to = dtpAdsTo.Value.TimeOfDay;
+        return now.TimeOfDay >= from && now.TimeOfDay < to;
+    }
+
+    private bool IsRuleAllowedNow(ScheduleRule rule, DateTime now) =>
+        rule.Category is not (ScheduleCategory.Ad or ScheduleCategory.LShapeAd) || IsWithinAdsWindow(now);
+
+    /// <summary>Shared by the auto-filler and Promo triggers so neither jumps in front of
+    /// something that's about to fire on its own.</summary>
+    private bool SomethingDueSoon(DateTime now) => _rules.Any(r =>
+    {
+        if (!IsRuleAllowedNow(r, now)) return false;
+        var next = r.ComputeNextOccurrence(now);
+        return next.HasValue && next.Value <= now.AddSeconds(3);
+    });
 
     private void Log(string message)
     {
@@ -164,6 +217,7 @@ public partial class Form1 : Form
         SetRoleLabel(lblRoleOverlay2Value, "Overlay2");
         SetRoleLabel(lblRoleOverlay3Value, "Overlay3");
         SetRoleLabel(lblRoleOverlay4Value, "Overlay4");
+        SetRoleLabel(lblRolePromoValue, "Promo");
     }
 
     private void SetRoleLabel(Label label, string role)
@@ -303,6 +357,7 @@ public partial class Form1 : Form
 
             var due = _rules.Where(r =>
             {
+                if (!IsRuleAllowedNow(r, now)) return false;
                 var occ = r.ComputeOccurrence(now);
                 return occ.HasValue && occ.Value <= now && (now - occ.Value) <= TimeSpan.FromSeconds(3) && r.LastFiredOccurrence != occ.Value;
             }).ToList();
@@ -338,6 +393,8 @@ public partial class Form1 : Form
             var active = status.FindActive();
             const string fieldName = "Headline.Text";
 
+            UpdateLiveStatusLabel(active);
+
             if ((now - _lastNowNextUpdate).TotalSeconds >= GetNowNextIntervalSeconds())
             {
                 await UpdateNowNextAsync(host, port, active, fieldName, now);
@@ -347,6 +404,7 @@ public partial class Form1 : Form
             await UpdateBackinAsync(host, port, active, fieldName, now);
             await HandleAdOverlayStateAsync(host, port, active);
             await HandleAutoFillerAsync(host, port, active, now);
+            await HandlePromoAsync(host, port, now);
 
             if (!_adOverlaysOff)
                 await UpdateOverlay2Async(host, port, active, now);
@@ -441,7 +499,11 @@ public partial class Form1 : Form
             _overlay2ItemKey = active.Key;
             _overlay2Visible = false;
             _overlay2Queue.Clear();
-            _overlay2NextCycleAt = now.AddSeconds(intervalSeconds);
+            // First popup for a newly-active item fires after the (short) Trigger Offset rather
+            // than waiting a full interval — otherwise a fresh item gets no cue until an entire
+            // NOW/NEXT (or Song) Interval has elapsed. Every later cycle for this same item still
+            // follows the normal repeat cadence below.
+            _overlay2NextCycleAt = now.AddSeconds(GetTriggerOffsetSeconds());
         }
 
         // Let whatever's currently showing finish its full visible window before considering
@@ -471,7 +533,8 @@ public partial class Form1 : Form
         {
             await _client.OverlayOnAsync(host, port, 2, showInput.Key);
             _overlay2Visible = true;
-            _overlay2HideAt = now.AddMilliseconds(Overlay2PopupDurationMs);
+            bool isSongRole = role is "NowSong" or "NextSong";
+            _overlay2HideAt = now.AddMilliseconds(isSongRole ? GetSongDurationMs() : GetNowNextDurationMs());
             Log($"Overlay2: showing '{role}'.");
         }
         catch (Exception ex)
@@ -532,13 +595,7 @@ public partial class Form1 : Form
         if (active == null || active.Duration <= 0) return;
         if (active.Position < active.Duration - 300) return;
         if (now < _fillerCooldownUntil) return;
-
-        bool somethingDueSoon = _rules.Any(r =>
-        {
-            var next = r.ComputeNextOccurrence(now);
-            return next.HasValue && next.Value <= now.AddSeconds(3);
-        });
-        if (somethingDueSoon) return;
+        if (SomethingDueSoon(now)) return;
 
         if (active.Number == filler.Number)
         {
@@ -588,6 +645,41 @@ public partial class Form1 : Form
             Log($"Auto-filler: '{active.Name}' ended, switched to filler '{filler.Name}'.");
         }
         catch (Exception ex) { Log($"Auto-filler trigger failed — {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Fires the Promo input every Promo Interval minutes, independent of the schedule grid —
+    /// a brief interruption/restart like a scheduled Ad, but on its own rolling cooldown rather
+    /// than a schedule-code occurrence. Skipped if something else is due within the next few
+    /// seconds, or if Promo itself already fired within the current interval.
+    /// </summary>
+    private async Task HandlePromoAsync(string host, int port, DateTime now)
+    {
+        if (!_roleInputs.TryGetValue("Promo", out var promo)) return;
+        if ((now - _lastPromoFiredAt).TotalSeconds < GetPromoIntervalSeconds()) return;
+        if (SomethingDueSoon(now)) return;
+
+        _lastPromoFiredAt = now;
+        try
+        {
+            await _client.TriggerInputAsync(host, port, promo.Key);
+            Log($"Promo: triggered '{promo.Name}'.");
+        }
+        catch (Exception ex) { Log($"Promo trigger failed — {ex.Message}"); }
+    }
+
+    private void UpdateLiveStatusLabel(VmixInput? active)
+    {
+        if (active == null || active.Duration <= 0)
+        {
+            lblLiveStatus.Text = "Position: --:-- / Duration: --:-- / Remaining: --:--";
+            return;
+        }
+
+        var position = TimeSpan.FromMilliseconds(active.Position).ToString(@"mm\:ss");
+        var duration = TimeSpan.FromMilliseconds(active.Duration).ToString(@"mm\:ss");
+        var remaining = TimeSpan.FromMilliseconds(Math.Max(0, active.Duration - active.Position)).ToString(@"mm\:ss");
+        lblLiveStatus.Text = $"Position: {position} / Duration: {duration} / Remaining: {remaining}";
     }
 
     private async Task TrySetText(string host, int port, string inputKey, string fieldName, string value, DateTime now)
