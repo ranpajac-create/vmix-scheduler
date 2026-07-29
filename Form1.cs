@@ -50,8 +50,21 @@ public partial class Form1 : Form
         InitializeComponent();
         _client = new VmixClient();
         tmrCheck.Start();
-        Log("vMix Scheduler started. Rename vMix inputs per the naming convention — syncing automatically.");
+        Log($"vMix Scheduler started (build {GetBuildHash()}).");
+        Log("Rename vMix inputs per the naming convention — syncing automatically.");
         _ = SyncFromVmixAsync(silent: false);
+    }
+
+    // Short git commit hash embedded at build time via the SourceRevisionId MSBuild property
+    // (see SetSourceRevisionId target in the .csproj), so anyone can tell which build is running
+    // just from the Log panel instead of guessing from a stale installer.
+    private static string GetBuildHash()
+    {
+        var infoVersion = System.Reflection.CustomAttributeExtensions
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(System.Reflection.Assembly.GetExecutingAssembly())
+            ?.InformationalVersion;
+        var hash = infoVersion?.Split('+') is { Length: 2 } parts ? parts[1] : null;
+        return string.IsNullOrEmpty(hash) ? "unknown" : hash;
     }
 
     private int GetPort() => int.TryParse(txtPort.Text.Trim(), out var p) ? p : 8088;
