@@ -9,6 +9,12 @@
     <ApplicationIcon>AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Test project lives in a subdirectory; without this it gets swept up by the default **/*.cs glob. -->
+    <Compile Remove="VmixScheduler.Tests\**\*.cs" />
+    <Compile Remove="VmixScheduler.Tests\obj\**\*.cs" />
+  </ItemGroup>
+
   <Target Name="SetSourceRevisionId" BeforeTargets="GetAssemblyVersion;GenerateAssemblyInfo">
     <Exec Command="git rev-parse --short HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="SourceRevisionId" />

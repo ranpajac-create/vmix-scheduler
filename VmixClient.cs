@@ -5,7 +5,16 @@ namespace VmixScheduler;
 
 public class VmixClient
 {
-    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private readonly HttpClient _http;
+
+    public VmixClient() : this(null) { }
+
+    /// <summary>Lets tests inject a fake transport instead of hitting a real vMix over HTTP.</summary>
+    public VmixClient(HttpMessageHandler? handler)
+    {
+        _http = handler != null ? new HttpClient(handler) : new HttpClient();
+        _http.Timeout = TimeSpan.FromSeconds(5);
+    }
 
     private static string BaseUrl(string host, int port) => $"http://{host}:{port}";
 
