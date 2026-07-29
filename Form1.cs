@@ -431,13 +431,18 @@ public partial class Form1 : Form
             }
 
             var active = status.FindActive();
-            const string fieldName = "Headline.Text";
+            // Targets each title's primary field by position (index 0), not by name — the actual
+            // field name varies per template (vMix's own default GT titles call it "Headline.Text";
+            // imported/purchased .gtzip templates commonly name it something else entirely), so
+            // going by position works for both instead of only whichever template happens to use
+            // vMix's default field name.
+            const int fieldIndex = 0;
 
             UpdateLiveStatusLabel(active);
 
-            await UpdateNowNextAsync(host, port, active, fieldName, now);
-            await UpdateNowNextSongAsync(host, port, active, fieldName, now);
-            await UpdateBackinAsync(host, port, active, fieldName, now);
+            await UpdateNowNextAsync(host, port, active, fieldIndex, now);
+            await UpdateNowNextSongAsync(host, port, active, fieldIndex, now);
+            await UpdateBackinAsync(host, port, active, fieldIndex, now);
             await HandleAdOverlayStateAsync(host, port, active);
             await HandleAutoFillerAsync(host, port, active, now);
             await HandlePromoAsync(host, port, now);
@@ -460,16 +465,16 @@ public partial class Form1 : Form
         }
     }
 
-    private async Task UpdateNowNextAsync(string host, int port, VmixInput? active, string fieldName, DateTime now)
+    private async Task UpdateNowNextAsync(string host, int port, VmixInput? active, int fieldIndex, DateTime now)
     {
         var nowText = BestDisplayText(active);
         var nextText = active?.NextSongTitle ?? "";
 
         if (_roleInputs.TryGetValue("Now", out var nowInput))
-            await TrySetText(host, port, nowInput.Key, fieldName, nowText, now);
+            await TrySetText(host, port, nowInput.Key, fieldIndex, nowText, now);
 
         if (_roleInputs.TryGetValue("Next", out var nextInput))
-            await TrySetText(host, port, nextInput.Key, fieldName, nextText, now);
+            await TrySetText(host, port, nextInput.Key, fieldIndex, nextText, now);
     }
 
     /// <summary>
@@ -478,17 +483,17 @@ public partial class Form1 : Form
     /// Filler is playing — otherwise, the moment a Program takes over, these two fields simply
     /// stop being touched and vMix keeps showing whatever song was last playing, indefinitely.
     /// </summary>
-    private async Task UpdateNowNextSongAsync(string host, int port, VmixInput? active, string fieldName, DateTime now)
+    private async Task UpdateNowNextSongAsync(string host, int port, VmixInput? active, int fieldIndex, DateTime now)
     {
         bool isFillerActive = active != null && _roleInputs.TryGetValue("Filler", out var fillerForSong) && active.Number == fillerForSong.Number;
         var nowSongText = isFillerActive ? (active!.CurrentSongTitle ?? "") : "";
         var nextSongText = isFillerActive ? (active!.NextSongTitle ?? "") : "";
 
         if (_roleInputs.TryGetValue("NowSong", out var nowSongInput))
-            await TrySetText(host, port, nowSongInput.Key, fieldName, nowSongText, now);
+            await TrySetText(host, port, nowSongInput.Key, fieldIndex, nowSongText, now);
 
         if (_roleInputs.TryGetValue("NextSong", out var nextSongInput))
-            await TrySetText(host, port, nextSongInput.Key, fieldName, nextSongText, now);
+            await TrySetText(host, port, nextSongInput.Key, fieldIndex, nextSongText, now);
     }
 
     /// <summary>
@@ -591,7 +596,7 @@ public partial class Form1 : Form
         _overlay2Visible = false;
     }
 
-    private async Task UpdateBackinAsync(string host, int port, VmixInput? active, string fieldName, DateTime now)
+    private async Task UpdateBackinAsync(string host, int port, VmixInput? active, int fieldIndex, DateTime now)
     {
         if (!_roleInputs.TryGetValue("Backin", out var backinInput)) return;
 
@@ -601,7 +606,7 @@ public partial class Form1 : Form
             var remainingMs = Math.Max(0, active.Duration - active.Position);
             text = TimeSpan.FromMilliseconds(remainingMs).ToString(@"mm\:ss");
         }
-        await TrySetText(host, port, backinInput.Key, fieldName, text, now);
+        await TrySetText(host, port, backinInput.Key, fieldIndex, text, now);
     }
 
     /// <summary>
@@ -723,15 +728,15 @@ public partial class Form1 : Form
         lblLiveStatus.Text = $"Position: {position} / Duration: {duration} / Remaining: {remaining}";
     }
 
-    private async Task TrySetText(string host, int port, string inputKey, string fieldName, string value, DateTime now)
+    private async Task TrySetText(string host, int port, string inputKey, int fieldIndex, string value, DateTime now)
     {
         try
         {
-            await _client.SetTextAsync(host, port, inputKey, fieldName, value);
+            await _client.SetTextAsync(host, port, inputKey, fieldIndex, value);
         }
         catch (Exception ex)
         {
-            LogThrottled($"Text overlay update failed (field '{fieldName}') — {ex.Message}", now);
+            LogThrottled($"Text overlay update failed (field index {fieldIndex}) — {ex.Message}", now);
         }
     }
 }

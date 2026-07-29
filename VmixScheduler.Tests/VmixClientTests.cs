@@ -116,17 +116,21 @@ public class VmixClientTests
     }
 
     [Fact]
-    public async Task SetTextAsync_UrlEncodesFieldNameAndValue()
+    public async Task SetTextAsync_TargetsFieldByIndex_NotByName()
     {
+        // Deliberately not "SelectedName" — the field's actual name varies per template (vMix's
+        // default GT titles use "Headline.Text"; imported .gtzip templates commonly don't), so
+        // this must target the field positionally (SelectedIndex) to work for both.
         var handler = new FakeHttpMessageHandler(_ => "<vmix></vmix>");
         var client = new VmixClient(handler);
 
-        await client.SetTextAsync("127.0.0.1", 8088, "key1", "Headline.Text", "Song & Title");
+        await client.SetTextAsync("127.0.0.1", 8088, "key1", 0, "Song & Title");
 
         var url = Assert.Single(handler.RequestedUrls);
         Assert.Contains("Function=SetText", url);
         Assert.Contains("Input=key1", url);
-        Assert.Contains("SelectedName=Headline.Text", url);
+        Assert.Contains("SelectedIndex=0", url);
+        Assert.DoesNotContain("SelectedName", url);
         Assert.Contains("Value=Song+%26+Title", url);
     }
 

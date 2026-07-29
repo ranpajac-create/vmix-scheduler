@@ -65,10 +65,17 @@ public class VmixClient
         return status;
     }
 
-    public async Task SetTextAsync(string host, int port, string inputKey, string fieldName, string value)
+    /// <summary>
+    /// Targets the title's field by position (SelectedIndex) rather than by name (SelectedName) —
+    /// the actual field name varies per template (vMix's own default GT titles use "Headline.Text",
+    /// but imported/purchased .gtzip templates commonly name their field something else entirely,
+    /// e.g. "Ticker1.Text"). Index 0 is consistently the template's primary text field regardless
+    /// of what it's named, so this works the same for .xaml and .gtzip titles alike.
+    /// </summary>
+    public async Task SetTextAsync(string host, int port, string inputKey, int fieldIndex, string value)
     {
         var url = $"{BaseUrl(host, port)}/api/?Function=SetText&Input={WebUtility.UrlEncode(inputKey)}" +
-                  $"&SelectedName={WebUtility.UrlEncode(fieldName)}&Value={WebUtility.UrlEncode(value)}";
+                  $"&SelectedIndex={fieldIndex}&Value={WebUtility.UrlEncode(value)}";
         using var response = await _http.GetAsync(url);
         response.EnsureSuccessStatusCode();
     }
