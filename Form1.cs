@@ -42,7 +42,7 @@ public partial class Form1 : Form
 
     // Daily CSV of everything that actually aired — proof-of-air for sponsors/ad buyers, built
     // from the same fire events already driving the Log panel (see RecordAsRun).
-    private static readonly string AsRunLogDirectory = Path.Combine(AppContext.BaseDirectory, "AsRunLogs");
+    private static readonly string AsRunLogDirectory = Path.Combine(AppPaths.DataDirectory, "AsRunLogs");
 
     private const int AutoSyncIntervalSeconds = 15;
     private bool _isSyncing;

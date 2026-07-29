@@ -45,7 +45,8 @@ static class Program
     {
         try
         {
-            var path = Path.Combine(AppContext.BaseDirectory, "crash.log");
+            Directory.CreateDirectory(AppPaths.DataDirectory);
+            var path = Path.Combine(AppPaths.DataDirectory, "crash.log");
             File.AppendAllText(path, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {ex}{Environment.NewLine}{Environment.NewLine}");
         }
         catch { /* best effort */ }
