@@ -49,7 +49,6 @@ public partial class Form1 : Form
     private DateTime _lastAutoSync = DateTime.MinValue;
     private bool _hasSyncedOnce;
     private bool _isTickRunning;
-    private DateTime _lastNowNextUpdate = DateTime.MinValue;
 
     public Form1()
     {
@@ -436,11 +435,7 @@ public partial class Form1 : Form
 
             UpdateLiveStatusLabel(active);
 
-            if ((now - _lastNowNextUpdate).TotalSeconds >= GetNowNextIntervalSeconds())
-            {
-                await UpdateNowNextAsync(host, port, active, fieldName, now);
-                _lastNowNextUpdate = now;
-            }
+            await UpdateNowNextAsync(host, port, active, fieldName, now);
             await UpdateNowNextSongAsync(host, port, active, fieldName, now);
             await UpdateBackinAsync(host, port, active, fieldName, now);
             await HandleAdOverlayStateAsync(host, port, active);
@@ -478,21 +473,22 @@ public partial class Form1 : Form
     }
 
     /// <summary>
-    /// Keeps NowSong/NextSong tracking the actively-playing Filler list item every tick —
-    /// unlike UpdateNowNextAsync, this must not be throttled by the Now/Next interval, since
-    /// songs can change far more often than that interval.
+    /// Keeps NowSong/NextSong tracking the actively-playing Filler list item every tick. Writes
+    /// unconditionally (blank when the Filler isn't active) rather than only writing while the
+    /// Filler is playing — otherwise, the moment a Program takes over, these two fields simply
+    /// stop being touched and vMix keeps showing whatever song was last playing, indefinitely.
     /// </summary>
     private async Task UpdateNowNextSongAsync(string host, int port, VmixInput? active, string fieldName, DateTime now)
     {
         bool isFillerActive = active != null && _roleInputs.TryGetValue("Filler", out var fillerForSong) && active.Number == fillerForSong.Number;
-        if (isFillerActive)
-        {
-            if (_roleInputs.TryGetValue("NowSong", out var nowSongInput))
-                await TrySetText(host, port, nowSongInput.Key, fieldName, active!.CurrentSongTitle ?? "", now);
+        var nowSongText = isFillerActive ? (active!.CurrentSongTitle ?? "") : "";
+        var nextSongText = isFillerActive ? (active!.NextSongTitle ?? "") : "";
 
-            if (_roleInputs.TryGetValue("NextSong", out var nextSongInput))
-                await TrySetText(host, port, nextSongInput.Key, fieldName, active!.NextSongTitle ?? "", now);
-        }
+        if (_roleInputs.TryGetValue("NowSong", out var nowSongInput))
+            await TrySetText(host, port, nowSongInput.Key, fieldName, nowSongText, now);
+
+        if (_roleInputs.TryGetValue("NextSong", out var nextSongInput))
+            await TrySetText(host, port, nextSongInput.Key, fieldName, nextSongText, now);
     }
 
     /// <summary>
@@ -537,8 +533,11 @@ public partial class Form1 : Form
 
         if (active.Key != _overlay2ItemKey)
         {
+            // Actually tell vMix to turn it off (not just reset our own bookkeeping) — otherwise,
+            // if a graphic was on-screen for the previous item at the exact moment it changed,
+            // it stays visible until the next popup cycle happens to overwrite it.
+            await HideOverlay2IfVisible(host, port);
             _overlay2ItemKey = active.Key;
-            _overlay2Visible = false;
             _overlay2Queue.Clear();
             // First popup for a newly-active item fires after the (short) Trigger Offset rather
             // than waiting a full interval — otherwise a fresh item gets no cue until an entire
