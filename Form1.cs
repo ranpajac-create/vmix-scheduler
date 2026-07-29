@@ -40,6 +40,10 @@ public partial class Form1 : Form
     // it last actually fired (not wall-clock aligned) — see HandlePromoAsync.
     private DateTime _lastPromoFiredAt = DateTime.MinValue;
 
+    // Daily CSV of everything that actually aired — proof-of-air for sponsors/ad buyers, built
+    // from the same fire events already driving the Log panel (see RecordAsRun).
+    private static readonly string AsRunLogDirectory = Path.Combine(AppContext.BaseDirectory, "AsRunLogs");
+
     private const int AutoSyncIntervalSeconds = 15;
     private bool _isSyncing;
     private DateTime _lastAutoSync = DateTime.MinValue;
@@ -57,6 +61,7 @@ public partial class Form1 : Form
         UpdateStartStopButtons();
         Log($"vMix Scheduler started (build {GetBuildHash()}).");
         Log("Rename vMix inputs per the naming convention — syncing automatically.");
+        Log($"As-run log: {AsRunLogDirectory}");
         _ = SyncFromVmixAsync(silent: false);
     }
 
@@ -147,6 +152,39 @@ public partial class Form1 : Form
         if ((now - _lastAutomationErrorLog).TotalSeconds < 30) return;
         _lastAutomationErrorLog = now;
         Log(message);
+    }
+
+    /// <summary>
+    /// Appends one row to today's as-run CSV (AsRunLogs\as-run-yyyy-MM-dd.csv) — a durable record
+    /// of exactly what aired and when, separate from the Log panel (which isn't persisted). Best
+    /// effort: a write failure here must never interrupt live automation.
+    /// </summary>
+    private void RecordAsRun(string triggerType, string category, string displayName, string rawTitle, DateTime timestamp)
+    {
+        try
+        {
+            Directory.CreateDirectory(AsRunLogDirectory);
+            var path = Path.Combine(AsRunLogDirectory, $"as-run-{timestamp:yyyy-MM-dd}.csv");
+            bool isNew = !File.Exists(path);
+            using var writer = new StreamWriter(path, append: true);
+            if (isNew) writer.WriteLine("Timestamp,TriggerType,Category,DisplayName,RawTitle");
+            writer.WriteLine(string.Join(",",
+                CsvField(timestamp.ToString("yyyy-MM-dd HH:mm:ss")),
+                CsvField(triggerType),
+                CsvField(category),
+                CsvField(displayName),
+                CsvField(rawTitle)));
+        }
+        catch (Exception ex)
+        {
+            LogThrottled($"As-run log write failed — {ex.Message}", timestamp);
+        }
+    }
+
+    private static string CsvField(string value)
+    {
+        if (value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) < 0) return value;
+        return "\"" + value.Replace("\"", "\"\"") + "\"";
     }
 
     // ---------- Refresh & sync ----------
@@ -280,10 +318,12 @@ public partial class Form1 : Form
 
         var host = txtHost.Text.Trim();
         var port = GetPort();
+        var now = DateTime.Now;
         try
         {
-            await FireRuleAsync(host, port, rule, DateTime.Now);
+            await FireRuleAsync(host, port, rule, now);
             Log($"Manually triggered '{rule.DisplayName}'.");
+            RecordAsRun("Manual", rule.Category.ToString(), rule.DisplayName, rule.RawTitle, now);
             RefreshGrid();
         }
         catch (Exception ex)
@@ -369,6 +409,7 @@ public partial class Form1 : Form
                 {
                     await FireRuleAsync(host, port, rule, occurrence);
                     Log($"Triggered '{rule.DisplayName}' ({rule.Category}, {rule.RecurrenceDisplay}).");
+                    RecordAsRun("Scheduled", rule.Category.ToString(), rule.DisplayName, rule.RawTitle, now);
                 }
                 catch (Exception ex)
                 {
@@ -664,6 +705,7 @@ public partial class Form1 : Form
         {
             await _client.TriggerInputAsync(host, port, promo.Key);
             Log($"Promo: triggered '{promo.Name}'.");
+            RecordAsRun("Promo", "Promo", promo.Name, promo.Name, now);
         }
         catch (Exception ex) { Log($"Promo trigger failed — {ex.Message}"); }
     }
