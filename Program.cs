@@ -38,6 +38,15 @@ static class Program
         // To customize application configuration such as set high DPI settings or default font,
         // see https://aka.ms/applicationconfiguration.
         ApplicationConfiguration.Initialize();
+
+        var licenseService = new LicenseService();
+        if (!licenseService.IsLicensedAsync().GetAwaiter().GetResult())
+        {
+            using var activationForm = new ActivationForm(licenseService);
+            if (activationForm.ShowDialog() != DialogResult.OK)
+                return; // closed without activating
+        }
+
         Application.Run(new Form1());
     }
 
