@@ -109,4 +109,59 @@ public class VmixInputTests
 
         Assert.Null(input.FileName);
     }
+
+    [Fact]
+    public void HasFinishedPlaying_False_WhenFirstItemOfMultiItemListIsNearEnd()
+    {
+        // Regression: Position/Duration reflect only the currently-playing item within a list, not
+        // the list as a whole — a multi-item Program list must not be reported as "finished" just
+        // because item 0 of 3 is about to end, or the auto-filler would cut away mid-list.
+        var input = new VmixInput
+        {
+            Position = 4800,
+            Duration = 5000,
+            ListItems = new List<string> { @"C:\Media\clip1.mp4", @"C:\Media\clip2.mp4", @"C:\Media\clip3.mp4" },
+            SelectedIndex = 0
+        };
+
+        Assert.False(input.HasFinishedPlaying());
+    }
+
+    [Fact]
+    public void HasFinishedPlaying_True_WhenLastItemOfMultiItemListIsNearEnd()
+    {
+        var input = new VmixInput
+        {
+            Position = 4800,
+            Duration = 5000,
+            ListItems = new List<string> { @"C:\Media\clip1.mp4", @"C:\Media\clip2.mp4", @"C:\Media\clip3.mp4" },
+            SelectedIndex = 2
+        };
+
+        Assert.True(input.HasFinishedPlaying());
+    }
+
+    [Fact]
+    public void HasFinishedPlaying_True_ForSingleClipInput_WhenNearEnd()
+    {
+        var input = new VmixInput { Position = 4800, Duration = 5000, ListItems = new List<string>(), SelectedIndex = -1 };
+
+        Assert.True(input.HasFinishedPlaying());
+    }
+
+    [Fact]
+    public void HasFinishedPlaying_False_WhenNotNearEnd()
+    {
+        var input = new VmixInput { Position = 0, Duration = 5000, ListItems = new List<string>(), SelectedIndex = -1 };
+
+        Assert.False(input.HasFinishedPlaying());
+    }
+
+    [Fact]
+    public void HasFinishedPlaying_False_WhenDurationIsZero()
+    {
+        var input = new VmixInput { Position = 0, Duration = 0 };
+
+        Assert.False(input.HasFinishedPlaying());
+    }
 }

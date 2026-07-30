@@ -646,16 +646,18 @@ public partial class Form1 : Form
     private async Task HandleAutoFillerAsync(string host, int port, VmixInput? active, DateTime now)
     {
         if (!_roleInputs.TryGetValue("Filler", out var filler)) return;
-        if (active == null || active.Duration <= 0) return;
-        if (active.Position < active.Duration - 300) return;
+        if (active == null) return;
+
+        // Position/Duration reflect only the currently-playing item within a list, not the list as
+        // a whole — HasFinishedPlaying accounts for that, so a multi-item Program or Filler list
+        // only counts as "finished" once it's actually on its last item, not just near the end of
+        // whichever item happens to be playing.
+        if (!active.HasFinishedPlaying()) return;
         if (now < _fillerCooldownUntil) return;
         if (SomethingDueSoon(now)) return;
 
         if (active.Number == filler.Number)
         {
-            bool atLastItem = active.ListItems.Count == 0 || active.SelectedIndex >= active.ListItems.Count - 1;
-            if (!atLastItem) return; // vMix is already mid-list; let it keep advancing on its own
-
             _fillerCooldownUntil = now.AddSeconds(5);
             try
             {

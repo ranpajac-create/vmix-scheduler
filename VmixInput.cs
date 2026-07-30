@@ -19,6 +19,17 @@ public class VmixInput
     public string? CurrentSongTitle => FileDisplayName(SelectedIndex >= 0 && SelectedIndex < ListItems.Count ? ListItems[SelectedIndex] : null);
     public string? NextSongTitle => FileDisplayName(SelectedIndex >= 0 && SelectedIndex + 1 < ListItems.Count ? ListItems[SelectedIndex + 1] : null);
 
+    /// <summary>True once this input has actually finished playing — near the end of the current
+    /// clip and, for list inputs, on the last item. Position/Duration alone reflect only the
+    /// currently-playing item within a list, not the list as a whole, so a multi-item list isn't
+    /// "finished" just because one item within it is near its end.</summary>
+    public bool HasFinishedPlaying(int toleranceMs = 300)
+    {
+        if (Duration <= 0) return false;
+        bool atLastItem = ListItems.Count == 0 || SelectedIndex >= ListItems.Count - 1;
+        return atLastItem && Position >= Duration - toleranceMs;
+    }
+
     /// <summary>The underlying media file name, extension stripped, when vMix's "title" actually
     /// carries one. For list-type inputs vMix composes title as "{ShortTitle} - {current file}" —
     /// that prefix is stripped off here. For a plain single-file input, once renamed, vMix's title
