@@ -47,6 +47,18 @@ public class LicenseService
 {
     // TODO: swap in the real Gumroad product permalink once the product is set up.
     private const string ProductPermalink = "your-product-permalink-here";
+    private const string UnconfiguredPermalink = "your-product-permalink-here";
+
+    /// <summary>
+    /// False until a real Gumroad product permalink replaces the placeholder above. Program.cs
+    /// checks this before enforcing activation at all — without it, shipping this gate ahead of
+    /// the actual Gumroad product being set up would permanently lock every install out behind an
+    /// activation dialog that can never succeed (there's nothing real for it to verify against),
+    /// which is exactly what happened the first time this went out.
+    /// </summary>
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(ProductPermalink) &&
+        !string.Equals(ProductPermalink, UnconfiguredPermalink, StringComparison.Ordinal);
 
     private static readonly TimeSpan ReverifyInterval = TimeSpan.FromDays(7);
     private static readonly TimeSpan OfflineGracePeriod = TimeSpan.FromDays(14);

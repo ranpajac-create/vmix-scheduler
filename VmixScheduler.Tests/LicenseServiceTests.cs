@@ -114,6 +114,18 @@ public class LicenseServiceTests
     }
 
     [Fact]
+    public void IsConfigured_False_WhilePermalinkIsStillThePlaceholder()
+    {
+        // Program.cs relies on this to skip the activation gate entirely until a real Gumroad
+        // product exists — otherwise every install locks out behind a dialog that can never
+        // succeed. Every constructor path bakes in the same placeholder permalink today, so this
+        // is necessarily false regardless of which ctor/fakes are used.
+        var service = MakeService(new FakeHttpMessageHandler(_ => SuccessJson), TempCachePath(), DateTime.UtcNow);
+
+        Assert.False(service.IsConfigured);
+    }
+
+    [Fact]
     public async Task IsLicensedAsync_False_WhenNoCacheExists()
     {
         var cachePath = TempCachePath(); // never written to

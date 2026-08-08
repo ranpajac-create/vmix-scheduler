@@ -39,8 +39,11 @@ static class Program
         // see https://aka.ms/applicationconfiguration.
         ApplicationConfiguration.Initialize();
 
+        // Skip enforcement entirely until a real Gumroad product is configured (see
+        // LicenseService.IsConfigured) — otherwise every install would be locked out behind an
+        // activation dialog that can never succeed.
         var licenseService = new LicenseService();
-        if (!licenseService.IsLicensedAsync().GetAwaiter().GetResult())
+        if (licenseService.IsConfigured && !licenseService.IsLicensedAsync().GetAwaiter().GetResult())
         {
             using var activationForm = new ActivationForm(licenseService);
             if (activationForm.ShowDialog() != DialogResult.OK)
