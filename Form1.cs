@@ -46,6 +46,18 @@ public partial class Form1 : Form
     private bool _hasSyncedOnce;
     private bool _isTickRunning;
 
+    // True until (and again any time after) contact with vMix is lost — the app's own first sync
+    // counts as "was unreachable" too, so HandleVmixReconnectedAsync's restore path is shared by
+    // both cases instead of a once-per-app-lifetime flag that would miss a vMix-side restart the
+    // app itself survives. See VmixReconnectPolicy.
+    private bool _vmixUnreachable = true;
+
+    // Caps the Log panel's TextBox so a multi-day run can't grow it (and its backing string)
+    // without bound; trimmed back down to LogTrimTargetChars, not all the way, so it doesn't
+    // re-trim on almost every subsequent line.
+    private const int MaxLogChars = 200_000;
+    private const int LogTrimTargetChars = 150_000;
+
     public Form1()
     {
         InitializeComponent();
@@ -140,6 +152,18 @@ public partial class Form1 : Form
     private void Log(string message)
     {
         txtLog.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}{Environment.NewLine}");
+        TrimLogIfTooLong();
+    }
+
+    /// <summary>Keeps the Log panel bounded over a multi-day run — see MaxLogChars.</summary>
+    private void TrimLogIfTooLong()
+    {
+        if (txtLog.TextLength <= MaxLogChars) return;
+        var cutIndex = LogTrimmer.FindTrimIndex(txtLog.Text, LogTrimTargetChars);
+        if (cutIndex <= 0) return;
+        txtLog.Text = txtLog.Text[cutIndex..];
+        txtLog.SelectionStart = txtLog.TextLength;
+        txtLog.ScrollToCaret();
     }
 
     private void LogThrottled(string message, DateTime now)
@@ -203,9 +227,7 @@ public partial class Form1 : Form
             SyncRoles(inputs);
             SyncRules(inputs);
             RefreshGrid();
-            if (!_hasSyncedOnce && !_adOverlaysOff)
-                await RestoreAdOverlaysAsync(host, port, "Startup sync");
-            _hasSyncedOnce = true;
+            await HandleVmixReconnectedAsync(host, port);
             lblConnectionStatus.Text = $"Connected — {inputs.Count} input(s), {_rules.Count} rule(s)";
             lblConnectionStatus.ForeColor = Color.SeaGreen;
             if (!silent)
@@ -213,6 +235,7 @@ public partial class Form1 : Form
         }
         catch (Exception ex)
         {
+            _vmixUnreachable = true;
             lblConnectionStatus.Text = "Connection failed";
             lblConnectionStatus.ForeColor = Color.Firebrick;
             Log($"Failed to connect to vMix at {host}:{port} — {ex.Message}");
@@ -223,6 +246,25 @@ public partial class Form1 : Form
             _isSyncing = false;
             _lastAutoSync = DateTime.Now;
         }
+    }
+
+    /// <summary>
+    /// Runs on every successful contact with vMix. Restores overlays whenever we're coming back
+    /// from a period of unreachability — the app's own first-ever sync, or a reconnect after vMix
+    /// itself restarted or hung mid-session (the app survives; only vMix dropped out). Without
+    /// this, a vMix-side restart that happened to occur while overlays weren't suppressed for an ad
+    /// would leave overlays 1/3/4 stuck off (vMix comes back with them off; the app's own
+    /// _adOverlaysOff flag never transitioned, so nothing re-triggers the normal restore path) for
+    /// however long it takes an ad break to fire and end afterward — potentially the rest of a
+    /// multi-day broadcast. See VmixReconnectPolicy.
+    /// </summary>
+    private async Task HandleVmixReconnectedAsync(string host, int port)
+    {
+        if (!_vmixUnreachable) return;
+        if (VmixReconnectPolicy.ShouldRestoreOverlaysOnReconnect(_vmixUnreachable, _adOverlaysOff))
+            await RestoreAdOverlaysAsync(host, port, _hasSyncedOnce ? "Reconnected to vMix" : "Startup sync");
+        _vmixUnreachable = false;
+        _hasSyncedOnce = true;
     }
 
     private void SyncRoles(List<VmixInput> inputs)
@@ -435,9 +477,15 @@ public partial class Form1 : Form
             }
             catch (Exception ex)
             {
+                // Marked here (not just in SyncFromVmixAsync's own catch) because this call runs
+                // every tick (1s) while the sync only runs every AutoSyncIntervalSeconds — this is
+                // usually the first thing to notice vMix drop out, and letting the sync path alone
+                // detect the reconnect could leave overlays stuck for up to 15s longer than needed.
+                _vmixUnreachable = true;
                 LogThrottled($"Live automation: failed to reach vMix — {ex.Message}", now);
                 return;
             }
+            await HandleVmixReconnectedAsync(host, port);
 
             var active = status.FindActive();
             // Targets each title's primary field by position (index 0), not by name — the actual
